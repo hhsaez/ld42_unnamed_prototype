@@ -34,270 +34,229 @@ using namespace crimild::sdl;
 using namespace crimild::animation;
 using namespace crimild::messaging;
 
-class ViewControls : 
-    public NodeComponent,
-    public Messenger {
-	CRIMILD_IMPLEMENT_RTTI( ViewControls );
-public:
-    ViewControls( void )
-    {
-        auto self = this;
-
-        registerMessageHandler< MouseButtonDown >( [self]( MouseButtonDown const &msg ) {
-            self->_lastMousePos = Input::getInstance()->getNormalizedMousePosition();
-        });
-
-        registerMessageHandler< MouseMotion >( [self]( MouseMotion const &msg ) {
-            if ( Input::getInstance()->isMouseButtonDown( CRIMILD_INPUT_MOUSE_BUTTON_LEFT ) ) {
-                auto currentMousePos = Input::getInstance()->getNormalizedMousePosition();
-                auto delta = currentMousePos - self->_lastMousePos;
-                self->_lastMousePos = Input::getInstance()->getNormalizedMousePosition();
-
-                if ( Input::getInstance()->isKeyDown( CRIMILD_INPUT_KEY_LEFT_SHIFT ) ) {
-                    self->translateView( Vector3f( 3.0f * delta[ 0 ], -3.0f * delta[ 1 ], 0.0f ) );
-                }
-                else {
-                    self->rotateView( Vector3f( delta[ 1 ], 3.0f * delta[ 0 ], 0.0f ) );
-                }
-            }
-        });
-    }
-
-    virtual ~ViewControls( void )
-    {
-
-    }
-
-    virtual void update( const Clock &clock ) override
-    {
-        bool shouldTranslate = Input::getInstance()->isKeyDown( CRIMILD_INPUT_KEY_LEFT_SHIFT );
-        bool translateSpeed = 0.5f * clock.getDeltaTime();
-
-        if ( Input::getInstance()->isKeyDown( 'W' ) ) {
-            if ( shouldTranslate ) {
-                translateView( Vector3f( 0.0f, -translateSpeed, 0.0f ) );
-            }
-            else {
-                rotateView( Vector3f( -0.1f, 0.0f, 0.0f ) );
-            }
-        }
-
-        if ( Input::getInstance()->isKeyDown( 'S' ) ) {
-            if ( shouldTranslate ) {
-                translateView( Vector3f( 0.0f, translateSpeed, 0.0f ) );
-            }
-            else {
-                rotateView( Vector3f( 0.1f, 0.0f, 0.0f ) );
-            }
-        }
-
-        if ( Input::getInstance()->isKeyDown( 'A' ) ) {
-            if ( shouldTranslate ) {
-                translateView( Vector3f( translateSpeed, 0.0f, 0.0f ) );
-            }
-            else {
-                rotateView( Vector3f( 0.0f, -0.1f, 0.0f ) );
-            }
-        }
-
-        if ( Input::getInstance()->isKeyDown( 'D' ) ) {
-            if ( shouldTranslate ) {
-                translateView( Vector3f( -translateSpeed, 0.0f, 0.0f ) );
-            }
-            else {
-                rotateView( Vector3f( 0.0f, 0.1f, 0.0f ) );
-            }
-        }
-
-        if ( Input::getInstance()->isKeyDown( 'Q' ) ) {
-            rotateView( Vector3f( 0.0f, 0.0f, 0.1f ) );
-        }
-
-        if ( Input::getInstance()->isKeyDown( 'E' ) ) {
-            rotateView( Vector3f( 0.0f, 0.0f, -0.1f ) );
-        }
-    }
-
-private:
-    void translateView( const Vector3f &delta )
-    {
-        getNode()->local().translate() += delta;
-    }
-
-    void rotateView( const Vector3f &delta )
-    {
-        if ( delta[ 0 ] != 0.0f ) {
-            Vector3f xAxis( 1.0f, 0.0f, 0.0f );
-            getNode()->getLocal().applyInverseToVector( Vector3f( 1.0f, 0.0f, 0.0f ), xAxis );
-            getNode()->local().rotate() *= Quaternion4f::createFromAxisAngle( xAxis, delta[ 0 ] );
-        }
-
-        if ( delta[ 1 ] != 0.0f ) {
-            Vector3f yAxis( 0.0f, 1.0f, 0.0f );
-            getNode()->getLocal().applyInverseToVector( Vector3f( 0.0f, 1.0f, 0.0f ), yAxis );
-            getNode()->local().rotate() *= Quaternion4f::createFromAxisAngle( yAxis, delta[ 1 ] );
-        }
-
-        if ( delta[ 2 ] != 0.0f ) {
-            Vector3f zAxis( 0.0f, 0.0f, 1.0f );
-            getNode()->getLocal().applyInverseToVector( Vector3f( 0.0f, 0.0f, 1.0f ), zAxis );
-            getNode()->local().rotate() *= Quaternion4f::createFromAxisAngle( zAxis, delta[ 2 ] );
-        }
-    }
-
-private:
-    Vector2f _lastMousePos;
-};
-
 #ifdef CRIMILD_PLATFORM_EMSCRIPTEN
 #define SIM_LIFETIME static
 #else
 #define SIM_LIFETIME
 #endif
 
+enum class Direction {
+	UP,
+	DOWN,
+	LEFT,
+	RIGHT,
+};
+
+class Grid :
+	public NodeComponent,
+	public DynamicSingleton< Grid > {
+	CRIMILD_IMPLEMENT_RTTI( Grid )
+
+public:
+	Grid( crimild::Int32 width, crimild::Int32 height )
+	    : _width( width ),
+		_height( height ),
+		_state( _width * _height )
+	{
+
+	}
+
+	virtual ~Grid( void)
+	{
+
+	}
+
+	crimild::Int32 getWidth( void ) const { return _width; }
+	crimild::Int32 getHeight( void ) const { return _height; }
+
+	crimild::Bool isEmpty( crimild::Vector2i pos ) const { return !_state[ pos.y() * _width + pos.x() ]; }
+	void setEmpty( crimild::Vector2i pos, crimild::Bool empty ) { _state[ pos.y() * _width + pos.x() ] = empty; }
+
+private:
+	crimild::Int32 _width;
+	crimild::Int32 _height;
+	containers::Array< crimild::Bool > _state;
+};
+
+class Player : public NodeComponent {
+	CRIMILD_IMPLEMENT_RTTI( Player )
+
+public:
+	Player( void )
+	{
+
+	}
+
+	virtual ~Player( void )
+	{
+
+	}
+
+	virtual void onAttach( void ) override
+	{
+		auto parent = getNode< Group >();
+
+		const auto TAIL_SIZE = 50;
+
+		auto m = crimild::alloc< Material >();
+		m->setDiffuse( RGBAColorf( 0.0f, 0.0f, 1.0f, 1.0f ) );
+		
+		for ( crimild::Size i = 0; i < TAIL_SIZE; i++ ) {
+			auto g = crimild::alloc< Geometry >();
+			g->attachPrimitive( crimild::alloc< BoxPrimitive >( 1.0f, 1.0f, 1.0f ) );
+			g->getComponent< MaterialComponent >()->attachMaterial( m );
+			g->local().setTranslate( Vector3f::POSITIVE_INFINITY );
+			parent->attachNode( g );
+			_tail.push( crimild::get_ptr( g ) );
+		}
+	}
+
+	virtual void start( void ) override
+	{
+		auto grid = Grid::getInstance();
+
+		auto x = Random::generate< crimild::Int32 >( grid->getWidth() );
+		auto y = Random::generate< crimild::Int32 >( grid->getHeight() );
+
+		_gridPos = Vector2i( x, y );
+
+		auto d = Random::generate< crimild::Int32 >( 4 );
+		switch ( d ) {
+			case 0:
+				_direction = Direction::UP;
+				break;
+
+			case 1:
+				_direction = Direction::DOWN;
+				break;
+
+			case 2:
+				_direction = Direction::LEFT;
+				break;
+
+			case 3:
+				_direction = Direction::RIGHT;
+				break;
+		}
+	}
+
+	virtual void update( const Clock &c ) override
+	{
+		auto grid = Grid::getInstance();
+
+		auto input = Input::getInstance();
+
+		if ( input->isKeyDown( CRIMILD_INPUT_KEY_UP ) ) _direction = Direction::UP;
+		if ( input->isKeyDown( CRIMILD_INPUT_KEY_DOWN ) ) _direction = Direction::DOWN;
+		if ( input->isKeyDown( CRIMILD_INPUT_KEY_LEFT ) ) _direction = Direction::LEFT;
+		if ( input->isKeyDown( CRIMILD_INPUT_KEY_RIGHT ) ) _direction = Direction::RIGHT;
+		
+		switch ( _direction ) {
+			case Direction::UP:
+				_gridPos.y() -= 1;
+				break;
+
+			case Direction::DOWN:
+				_gridPos.y() += 1;
+				break;
+
+			case Direction::LEFT:
+				_gridPos.x() -= 1;
+				break;
+
+			case Direction::RIGHT:
+				_gridPos.x() += 1;
+				break;
+		}
+
+		if ( _gridPos.x() < 0 ) _gridPos.x() = grid->getWidth() - 1;
+		if ( _gridPos.x() >= grid->getWidth() ) _gridPos.x() = 0;
+		if ( _gridPos.y() < 0 ) _gridPos.y() = grid->getHeight() - 1;
+		if ( _gridPos.y() >= grid->getHeight() ) _gridPos.y() = 0;
+
+		auto u = Numericf::TWO_PI * _gridPos.x() / ( grid->getWidth() - 1.0f );
+		auto v = _gridPos.y() / ( grid->getHeight() - 1.0f );
+		auto r = 0.5f * grid->getWidth();
+		auto h = grid->getHeight();
+		auto x = r * ( 1.0f - v ) * std::cos( u );
+		auto y = h * ( v - 0.5f );
+		auto z = r * ( 1.0f - v ) * -std::sin( u );
+
+		auto t = _tail.pop();
+		t->local().setTranslate( x, y, z );//_gridPos.x(), 0, _gridPos.y() );
+		_tail.push( t );
+	}
+
+private:
+	crimild::Vector2i _gridPos;
+	Direction _direction;
+	containers::Queue< Node * > _tail;
+};
+
+SharedPointer< Group > createPlayer( void )
+{
+	auto player = crimild::alloc< Group >();
+	player->attachComponent< Player >();
+
+	return player;
+}
+
+SharedPointer< Group > createGrid( void )
+{
+	const auto WIDTH = 100;
+	const auto HEIGHT = 100;
+	
+	auto g = crimild::alloc< Geometry >();
+	g->attachPrimitive( crimild::alloc< ConePrimitive >( Primitive::Type::LINES, HEIGHT, 0.5f * WIDTH ) );
+	//g->attachPrimitive( crimild::alloc< QuadPrimitive >( WIDTH, HEIGHT ) );
+	//g->local().setTranslate( 0.5f * WIDTH, -50.0f, 0.5f * HEIGHT );
+
+	auto m = crimild::alloc< Material >();
+	m->setSpecular( RGBAColorf::ZERO );
+	m->setShininess( 0.0f );
+	g->getComponent< MaterialComponent >()->attachMaterial( m );
+	
+	auto grid = crimild::alloc< Group >();
+	grid->attachNode( g );
+	grid->attachComponent< Grid >( WIDTH, HEIGHT );
+	grid->local().rotate().fromAxisAngle( Vector3f::UNIT_X, Numericf::PI );
+	return grid;
+}
+
+SharedPointer< Camera > createCamera( void )
+{
+	auto grid = Grid::getInstance();
+	auto gridCenter = Vector3f::ZERO;//Vector3f( 0.5f * grid->getWidth(), 0.0f, 0.5f * grid->getHeight() );
+	
+	auto camera = crimild::alloc< Camera >();
+    camera->local().setTranslate( gridCenter + 100.0f * Vector3f::UNIT_Y + 100.0f * Vector3f::UNIT_Z );
+	camera->local().lookAt( gridCenter );
+
+	return camera;
+}
+
 int main( int argc, char **argv )
 {
 	crimild::init();
 
-	SIM_LIFETIME auto sim = crimild::alloc< SDLSimulation >( "Crimild Emscripten Demo", crimild::alloc< Settings >( argc, argv ) );
+	SIM_LIFETIME auto sim = crimild::alloc< SDLSimulation >( "LD42", crimild::alloc< Settings >( argc, argv ) );
 
-	sim->getRenderer()->getScreenBuffer()->setClearColor( RGBAColorf( 0.0f, 0.0f, 0.0f, 1.0f ) );
+	sim->getRenderer()->getScreenBuffer()->setClearColor( RGBAColorf( 0.5f, 0.5f, 0.5f, 1.0f ) );
 
     auto scene = crimild::alloc< Group >();
 
-    auto camera = crimild::alloc< Camera >();
-    camera->local().setTranslate( Vector3f( 0.0f, 0.0f, 1.25f ) );
+	auto grid = createGrid();
+	scene->attachNode( grid );
+
+	auto player = createPlayer();
+	grid->attachNode( player );
+
+    auto camera = createCamera();
     scene->attachNode( camera );
 
-	coding::FileDecoder decoder;
-	std::string modelPath = FileSystem::getInstance().pathForResource( "assets/astroboy.crimild" );
-	if ( decoder.read( modelPath ) ) {
-		if ( decoder.getObjectCount() > 0 ) {
-			auto model = decoder.getObjectAt< Node >( 0 );
-			if ( model != nullptr ) {
-				model->perform( UpdateWorldState() );
-
-				const auto SCALE = 1.0f / model->getWorldBound()->getRadius();
-				model->local().setScale( SCALE );
-				model->local().translate() -= SCALE * Vector3f( 0.0f, model->getWorldBound()->getCenter()[ 1 ], 0.0f );
-			
-				auto pivot = crimild::alloc< Group >();
-				pivot->attachNode( model );
-				pivot->attachComponent< ViewControls >();
-
-				model->perform( ApplyToGeometries( []( Geometry *g ) {
-					if ( auto ms = g->getComponent< MaterialComponent >() ) {
-						ms->forEachMaterial( []( Material *m ) {
-							m->setAmbient( RGBAColorf::ZERO );
-						});
-					}
-				}));
-
-				scene->attachNode( pivot );
-
-				if ( auto skeleton = model->getComponent< Skeleton >() ) {
-					if ( skeleton->getClips().size() > 0 ) {
-						auto animation = crimild::alloc< Animation >( skeleton->getClips().values().first() );
-						
-						auto centerAnim = crimild::alloc< Animation >(
-							crimild::alloc< Clip >(
-								"center",
-								crimild::alloc< Quaternion4fChannel >(
-									"astroBoy_newSkeleton_neck01[r]",
-									containers::Array< crimild::Real32 > { 2.0 },
-									containers::Array< Quaternion4f > { Quaternion4f::createFromAxisAngle( Vector3f::UNIT_Y, 0.0 ) }
-									)
-								)
-							);
-						
-						auto leftAnim = crimild::alloc< Animation >(
-							crimild::alloc< Clip >(
-								"left",
-								crimild::alloc< Quaternion4fChannel >(
-									"astroBoy_newSkeleton_neck01[r]",
-									containers::Array< crimild::Real32 > { 2.0 },
-									containers::Array< Quaternion4f > { Quaternion4f::createFromAxisAngle( Vector3f::UNIT_Z, -0.45 * Numericf::PI ) }
-									)
-								)
-							);
-						
-						auto rightAnim = crimild::alloc< Animation >(
-							crimild::alloc< Clip >(
-								"right",
-								crimild::alloc< Quaternion4fChannel >(
-									"astroBoy_newSkeleton_neck01[r]",
-									containers::Array< crimild::Real32 > { 2.0 },
-									containers::Array< Quaternion4f > { Quaternion4f::createFromAxisAngle( Vector3f::UNIT_Z, 0.45 * Numericf::PI ) }
-									)
-								)
-							);
-						
-						auto upAnim = crimild::alloc< Animation >(
-							crimild::alloc< Clip >(
-								"up",
-								crimild::alloc< Quaternion4fChannel >(
-									"astroBoy_newSkeleton_neck01[r]",
-									containers::Array< crimild::Real32 > { 2.0 },
-									containers::Array< Quaternion4f > { Quaternion4f::createFromAxisAngle( Vector3f::UNIT_Y, -0.45 * Numericf::PI ) }
-									)
-								)
-							);
-						
-						auto downAnim = crimild::alloc< Animation >(
-							crimild::alloc< Clip >(
-								"down",
-								crimild::alloc< Quaternion4fChannel >(
-									"astroBoy_newSkeleton_neck01[r]",
-									containers::Array< crimild::Real32 > { 2.0 },
-									containers::Array< Quaternion4f > { Quaternion4f::createFromAxisAngle( Vector3f::UNIT_Y, 0.45 * Numericf::PI ) }
-									)
-								)
-							);
-
-						model->attachComponent< LambdaComponent >( [ animation, skeleton, centerAnim, leftAnim, rightAnim, upAnim, downAnim ]( Node *node, const Clock &c ) {
-							auto mousePos = Input::getInstance()->getNormalizedMousePosition();
-							
-							auto xLeft = Numericf::clamp( 2.0f * mousePos.x(), 0.0f, 1.0f );
-							auto xRight = Numericf::clamp( 2.0f * ( mousePos.x() - 0.5f ), 0.0f, 1.0f );
-							leftAnim->update( c )->lerp( centerAnim, xLeft )->lerp( rightAnim, xRight );
-							
-							auto yUp = Numericf::clamp( mousePos.y() / 0.3f, 0.0f, 1.0f );
-							auto yDown = Numericf::clamp( ( mousePos.y() - 0.3f ) / 0.7f, 0.0f, 1.0f );
-							upAnim->update( c )->lerp( centerAnim, yUp )->lerp( downAnim, yDown );
-							
-							leftAnim->lerp( upAnim, 0.5f, false );
-
-							animation->update( c )->add( leftAnim, 1.0f );
-							skeleton->animate( crimild::get_ptr( animation ) );
-							node->perform( UpdateWorldState() );
-						});
-					}
-				}
-			}
-		}
-	}
-
 	auto light = crimild::alloc< Light >( Light::Type::POINT );
-	light->local().setTranslate( 1.0f, 1.0f, 1.0f );
-	scene->attachNode( light );
-	
-	auto light2 = crimild::alloc< Light >( Light::Type::POINT );
-	light2->local().setTranslate( -1.0f, -1.0f, -1.0f );
-	scene->attachNode( light2 );
-	
-	auto light3 = crimild::alloc< Light >( Light::Type::POINT );
-	light3->local().setTranslate( 0.0f, 0.0f, 3.0f );
-	light3->setAttenuation( Vector3f( 2.0f, 0.0f, 0.0f ) );
-	scene->attachNode( light3 );
+	camera->attachNode( light );
 
-    scene->attachComponent< AudioSourceComponent >( AudioManager::getInstance()->createAudioSource( FileSystem::getInstance().pathForResource( "assets/music/steps.wav" ), false ) );
-	auto source = scene->getComponent< AudioSourceComponent >()->getAudioSource();
-	if ( source != nullptr ) {
-		source->setLoop( true );
-		source->setVolume( 0.5f );
-		source->play();
-	}
-	
     sim->setScene( scene );
 
 	return sim->run();
