@@ -175,7 +175,7 @@ public:
 		if ( _gridPos.y() >= grid->getHeight() ) _gridPos.y() = 0;
 
 		auto u = Numericf::TWO_PI * _gridPos.x() / ( grid->getWidth() - 1.0f );
-		auto v = _gridPos.y() / ( grid->getHeight() - 1.0f );
+		auto v = 0.5f * _gridPos.y() / ( grid->getHeight() - 1.0f );
 		auto r = 0.5f * grid->getWidth();
 		auto h = grid->getHeight();
 		auto x = r * ( 1.0f - v ) * std::cos( u );
@@ -183,7 +183,7 @@ public:
 		auto z = r * ( 1.0f - v ) * -std::sin( u );
 
 		auto t = _tail.pop();
-		t->local().setTranslate( x, y, z );//_gridPos.x(), 0, _gridPos.y() );
+		t->local().setTranslate( x, y, z );
 		_tail.push( t );
 	}
 
@@ -208,8 +208,6 @@ SharedPointer< Group > createGrid( void )
 	
 	auto g = crimild::alloc< Geometry >();
 	g->attachPrimitive( crimild::alloc< ConePrimitive >( Primitive::Type::LINES, HEIGHT, 0.5f * WIDTH ) );
-	//g->attachPrimitive( crimild::alloc< QuadPrimitive >( WIDTH, HEIGHT ) );
-	//g->local().setTranslate( 0.5f * WIDTH, -50.0f, 0.5f * HEIGHT );
 
 	auto m = crimild::alloc< Material >();
 	m->setSpecular( RGBAColorf::ZERO );
@@ -226,11 +224,11 @@ SharedPointer< Group > createGrid( void )
 SharedPointer< Camera > createCamera( void )
 {
 	auto grid = Grid::getInstance();
-	auto gridCenter = Vector3f::ZERO;//Vector3f( 0.5f * grid->getWidth(), 0.0f, 0.5f * grid->getHeight() );
+	auto gridCenter = Vector3f::ZERO;
 	
 	auto camera = crimild::alloc< Camera >();
-    camera->local().setTranslate( gridCenter + 100.0f * Vector3f::UNIT_Y + 100.0f * Vector3f::UNIT_Z );
-	camera->local().lookAt( gridCenter );
+    camera->local().setTranslate( gridCenter - 2.0f * Vector3f::UNIT_X + 120.0f * Vector3f::UNIT_Y + 50.0f * Vector3f::UNIT_Z );
+	camera->local().lookAt( gridCenter - 2.0f * Vector3f::UNIT_X - 10.0f * Vector3f::UNIT_Z );
 
 	return camera;
 }
