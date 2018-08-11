@@ -78,7 +78,9 @@ private:
 	containers::Array< crimild::Bool > _state;
 };
 
-class Player : public NodeComponent {
+class Player :
+	public NodeComponent,
+	public Messenger {
 	CRIMILD_IMPLEMENT_RTTI( Player )
 
 public:
@@ -96,7 +98,7 @@ public:
 	{
 		auto parent = getNode< Group >();
 
-		const auto TAIL_SIZE = 50;
+		const auto TAIL_SIZE = 250;
 
 		auto m = crimild::alloc< Material >();
 		m->setDiffuse( RGBAColorf( 0.0f, 0.0f, 1.0f, 1.0f ) );
@@ -138,34 +140,69 @@ public:
 				_direction = Direction::RIGHT;
 				break;
 		}
+
+		registerMessageHandler< messaging::KeyReleased >( [ this ]( messaging::KeyReleased const &m ) {
+			if ( m.key == CRIMILD_INPUT_KEY_LEFT ) {
+				switch ( _direction ) {
+					case Direction::UP:
+						_direction = Direction::LEFT;
+						break;
+						
+					case Direction::DOWN:
+						_direction = Direction::RIGHT;
+						break;
+						
+					case Direction::LEFT:
+						_direction = Direction::DOWN;
+						break;
+						
+					case Direction::RIGHT:
+						_direction = Direction::UP;
+						break;
+				}
+			}
+			else if ( m.key == CRIMILD_INPUT_KEY_RIGHT ) {
+				switch ( _direction ) {
+					case Direction::UP:
+						_direction = Direction::RIGHT;
+						break;
+						
+					case Direction::DOWN:
+						_direction = Direction::LEFT;
+						break;
+						
+					case Direction::LEFT:
+						_direction = Direction::UP;
+						break;
+						
+					case Direction::RIGHT:
+						_direction = Direction::DOWN;
+						break;
+				}
+			}
+		});
 	}
 
 	virtual void update( const Clock &c ) override
 	{
 		auto grid = Grid::getInstance();
 
-		auto input = Input::getInstance();
-
-		if ( input->isKeyDown( CRIMILD_INPUT_KEY_UP ) ) _direction = Direction::UP;
-		if ( input->isKeyDown( CRIMILD_INPUT_KEY_DOWN ) ) _direction = Direction::DOWN;
-		if ( input->isKeyDown( CRIMILD_INPUT_KEY_LEFT ) ) _direction = Direction::LEFT;
-		if ( input->isKeyDown( CRIMILD_INPUT_KEY_RIGHT ) ) _direction = Direction::RIGHT;
-		
+		const crimild::Int32 SPEED = Numericf::max( 1.0f, 10.0f * ( _gridPos.y() / ( grid->getHeight() - 1.0f ) ) );
 		switch ( _direction ) {
 			case Direction::UP:
-				_gridPos.y() -= 1;
+				_gridPos.y() -= SPEED;
 				break;
 
 			case Direction::DOWN:
-				_gridPos.y() += 1;
+				_gridPos.y() += SPEED;
 				break;
 
 			case Direction::LEFT:
-				_gridPos.x() -= 1;
+				_gridPos.x() -= SPEED;
 				break;
 
 			case Direction::RIGHT:
-				_gridPos.x() += 1;
+				_gridPos.x() += SPEED;
 				break;
 		}
 
@@ -175,7 +212,7 @@ public:
 		if ( _gridPos.y() >= grid->getHeight() ) _gridPos.y() = 0;
 
 		auto u = Numericf::TWO_PI * _gridPos.x() / ( grid->getWidth() - 1.0f );
-		auto v = 0.5f * _gridPos.y() / ( grid->getHeight() - 1.0f );
+		auto v = 0.75f * _gridPos.y() / ( grid->getHeight() - 1.0f );
 		auto r = 0.5f * grid->getWidth();
 		auto h = grid->getHeight();
 		auto x = r * ( 1.0f - v ) * std::cos( u );
@@ -183,7 +220,7 @@ public:
 		auto z = r * ( 1.0f - v ) * -std::sin( u );
 
 		auto t = _tail.pop();
-		t->local().setTranslate( x, y, z );
+		t->local().setTranslate( 0.1f * x, 0.1f * y, 0.1f * z );
 		_tail.push( t );
 	}
 
@@ -203,19 +240,29 @@ SharedPointer< Group > createPlayer( void )
 
 SharedPointer< Group > createGrid( void )
 {
-	const auto WIDTH = 100;
-	const auto HEIGHT = 100;
+	const auto WIDTH = 1000;
+	const auto HEIGHT = 1000;
 	
-	auto g = crimild::alloc< Geometry >();
-	g->attachPrimitive( crimild::alloc< ConePrimitive >( Primitive::Type::LINES, HEIGHT, 0.5f * WIDTH ) );
+	auto grid = crimild::alloc< Group >();
 
 	auto m = crimild::alloc< Material >();
 	m->setSpecular( RGBAColorf::ZERO );
 	m->setShininess( 0.0f );
+
+	// debug grid
+	auto g = crimild::alloc< Geometry >();
+	g->attachPrimitive( crimild::alloc< ConePrimitive >( Primitive::Type::LINES, 0.1f * HEIGHT, 0.05f * WIDTH ) );
 	g->getComponent< MaterialComponent >()->attachMaterial( m );
-	
-	auto grid = crimild::alloc< Group >();
 	grid->attachNode( g );
+
+	// temp plane for background
+	auto plane = crimild::alloc< Geometry >();
+	plane->attachPrimitive( crimild::alloc< QuadPrimitive >( 1000.0f, 1000.0f ) );
+	plane->local().rotate().fromAxisAngle( Vector3f::UNIT_X, Numericf::HALF_PI );
+	plane->local().setTranslate( 0.0f, 0.025f * HEIGHT, 0.0f );
+	plane->getComponent< MaterialComponent >()->attachMaterial( m );
+	grid->attachNode( plane );
+
 	grid->attachComponent< Grid >( WIDTH, HEIGHT );
 	grid->local().rotate().fromAxisAngle( Vector3f::UNIT_X, Numericf::PI );
 	return grid;
