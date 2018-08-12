@@ -36,6 +36,45 @@ using namespace hunger::messaging;
 using namespace crimild;
 using namespace crimild::messaging;
 
+TrailPositionParticleGenerator::TrailPositionParticleGenerator( void )
+{
+
+}
+
+TrailPositionParticleGenerator::~TrailPositionParticleGenerator( void )
+{
+
+}
+
+void TrailPositionParticleGenerator::configure( Node *node, ParticleData *particles )
+{
+	_positions = particles->createAttribArray< Vector3f >( ParticleAttrib::POSITION );
+	assert( _positions != nullptr );
+}
+
+void TrailPositionParticleGenerator::generate( Node *node, crimild::Real64 dt, ParticleData *particles, ParticleId startId, ParticleId endId )
+{
+	auto ps = _positions->getData< Vector3f >();
+	
+    for ( ParticleId i = startId; i < endId; i++ ) {
+		auto idx = Random::generate< crimild::Real32 >( _trail.size() );
+		auto lo = crimild::Int32( idx );
+		auto hi = crimild::Int32( idx ) + 1;
+		auto p = _trail[ lo ];
+		if ( hi < _trail.size() ) {
+			auto x = idx - lo / ( hi - lo );
+			Vector3f dir = _trail[ hi ] - _trail[ lo ];
+			dir.normalize();
+			p += x * dir;
+		}
+		if ( particles->shouldComputeInWorldSpace() ) {
+			node->getWorld().applyToPoint( p, p );
+		}
+		ps[ i ] = p;
+    }
+}
+
+
 Player::Player( void )
 {
 	
@@ -50,19 +89,75 @@ void Player::onAttach( void )
 {
 	auto parent = getNode< Group >();
 	
-	const auto TAIL_SIZE = 50;
-	
-	auto m = crimild::alloc< Material >();
-	m->setDiffuse( RGBAColorf( 0.0f, 0.0f, 1.0f, 1.0f ) );
+	const auto TAIL_SIZE = 500;
 	
 	for ( crimild::Size i = 0; i < TAIL_SIZE; i++ ) {
-		auto g = crimild::alloc< Geometry >();
-		g->attachPrimitive( crimild::alloc< BoxPrimitive >( 2.0f, 2.0f, 2.0f ) );
-		g->getComponent< MaterialComponent >()->attachMaterial( m );
-		g->local().setTranslate( Vector3f::POSITIVE_INFINITY );
-		parent->attachNode( g );
-		_tail.push( TailNode { Vector2i( -1, -1 ), crimild::get_ptr( g ) } );
+		auto n = crimild::alloc< Node >();
+		n->local().setTranslate( Vector3f::POSITIVE_INFINITY );
+		parent->attachNode( n );
+		_tail.push( TailNode { Vector2i( -1, -1 ), crimild::get_ptr( n ) } );
 	}
+
+	/*
+	auto g = crimild::alloc< Geometry >();
+	auto m = crimild::alloc< Material >();
+	m->setProgram( Renderer::getInstance()->getShaderProgram( Renderer::SHADER_PROGRAM_UNLIT_DIFFUSE ) );
+	m->setDiffuse( RGBAColorf( 1.0f, 0.0f, 1.0f, 1.0f ) );
+	g->getComponent< MaterialComponent >()->attachMaterial( m );
+	parent->attachNode( g );
+	_renderer = crimild::get_ptr( g );
+	*/
+
+
+	auto particleSystem = crimild::alloc< Group >();
+	auto particles = crimild::alloc< ParticleData >( 5000 );
+	particles->setComputeInWorldSpace( false );
+	auto ps = crimild::alloc< ParticleSystemComponent >( particles );
+	ps->setEmitRate( 100 );
+	// generators
+	//auto posGenerator = crimild::alloc< BoxPositionParticleGenerator >();
+	//posGenerator->setOrigin( Vector3f::ZERO );
+	//posGenerator->setSize( Vector3f::ONE );
+	auto posGenerator = crimild::alloc< NodePositionParticleGenerator >();
+	posGenerator->setTargetNode( getNode() );
+	_posGenerator = crimild::get_ptr( posGenerator );
+	ps->addGenerator( posGenerator );
+	/*
+	auto velocityGenerator = crimild::alloc< RandomVector3fParticleGenerator >();
+	velocityGenerator->setParticleAttribType( ParticleAttrib::VELOCITY );
+	velocityGenerator->setMinValue( Vector3f( 0.0f, 1.0f, 0.0f ) );
+	velocityGenerator->setMaxValue( Vector3f( 0.0f, 2.0f, 0.0f ) );
+	ps->addGenerator( velocityGenerator );
+	auto accelGenerator = crimild::alloc< DefaultVector3fParticleGenerator >();
+	accelGenerator->setParticleAttribType( ParticleAttrib::ACCELERATION );
+	accelGenerator->setValue( Vector3f::ZERO );
+	ps->addGenerator( accelGenerator );
+	*/
+	auto colorGenerator = crimild::alloc< ColorParticleGenerator >();
+	colorGenerator->setMinStartColor( RGBAColorf( 0.55f, 0.55f, 0.55f, 1.0f ) );
+	colorGenerator->setMaxStartColor( RGBAColorf( 0.35f, 0.35f, 0.35f, 1.0f ) );
+	colorGenerator->setMinEndColor( RGBAColorf( 0.15f, 0.15f, 0.15f, 1.0f ) );
+	colorGenerator->setMaxEndColor( RGBAColorf( 0.10f, 0.10f, 0.10f, 1.0f ) );
+	ps->addGenerator( colorGenerator );
+	auto scaleGenerator = crimild::alloc< RandomReal32ParticleGenerator >();
+	scaleGenerator->setParticleAttribType( ParticleAttrib::UNIFORM_SCALE );
+	scaleGenerator->setMinValue( 2.0f );
+	scaleGenerator->setMaxValue( 10.0f );
+	ps->addGenerator( scaleGenerator );
+	auto timeGenerator = crimild::alloc< TimeParticleGenerator >();
+	timeGenerator->setMinTime( 120.0f );
+	timeGenerator->setMaxTime( 200.0f );
+	ps->addGenerator( timeGenerator );
+	// updaters
+	//ps->addUpdater( crimild::alloc< EulerParticleUpdater >() );
+	ps->addUpdater( crimild::alloc< TimeParticleUpdater >() );
+	// renderers
+    auto renderer = crimild::alloc< PointSpriteParticleRenderer >();
+	renderer->getMaterial()->getCullFaceState()->setEnabled( false );
+	ps->addRenderer( renderer );
+
+	particleSystem->attachComponent( ps );
+	parent->attachNode( particleSystem );
 }
 
 void Player::start( void )
@@ -154,6 +249,8 @@ void Player::update( const Clock &c )
 		}
 		_t -= FIXED_TIME;
 	}
+
+	renderTail();
 }
 
 crimild::Bool Player::step( void )
@@ -200,5 +297,45 @@ crimild::Bool Player::step( void )
 	_tail.push( t );
 	
 	return true;
+}
+
+void Player::renderTail( void )
+{
+	_posGenerator->setTargetNode( getNode() );
+	if ( getHead() != nullptr ) {
+		_posGenerator->setTargetNode( getHead() );
+	}
+	
+	if ( _tail.empty() ) {
+		return;
+	}
+
+#if 0
+	//const auto VERTEX_COUNT = _tail.size() * 2;
+	containers::Array< Vector3f > trail;
+	//auto vbo = crimild::alloc< VertexBufferObject >( VertexFormat::VF_P3, VERTEX_COUNT );
+	//auto ibo = crimild::alloc< IndexBufferObject >( VERTEX_COUNT );
+	//auto prevPos = _tail.front().node->getLocal().getTranslate();
+	_tail.each( [ this, /*ibo, vbo, &prevPos,*/ &trail ]( TailNode &t, crimild::Size i ) {
+		if ( t.pos.x() >= 0 && t.pos.y() >= 0 ) {
+			auto pos = t.node->getLocal().getTranslate();
+			trail.add( pos );
+			//vbo->setPositionAt( i * 2 + 0, prevPos );
+			//vbo->setPositionAt( i * 2 + 1, pos );
+			//prevPos = pos;
+			//ibo->setIndexAt( i * 2 + 0, i * 2 + 0 );
+			//ibo->setIndexAt( i * 2 + 1, i * 2 + 1 );
+		}
+	});
+
+	_posGenerator->setTrail( trail );	
+
+	//auto primitive = crimild::alloc< Primitive >( Primitive::Type::LINES );
+	//primitive->setVertexBuffer( vbo );
+	//primitive->setIndexBuffer( ibo );
+
+	//_renderer->detachAllPrimitives();
+	//_renderer->attachPrimitive( primitive );
+#endif
 }
 

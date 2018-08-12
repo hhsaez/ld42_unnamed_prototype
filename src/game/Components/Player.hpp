@@ -30,6 +30,32 @@
 
 #include <Crimild.hpp>
 
+namespace crimild {
+
+	class TrailPositionParticleGenerator : public ParticleSystemComponent::ParticleGenerator {
+		CRIMILD_IMPLEMENT_RTTI( crimild::TrailPositionParticleGenerator )
+
+	private:
+		using Trail = containers::Array< Vector3f >;
+		
+	public:
+		TrailPositionParticleGenerator( void );
+		virtual ~TrailPositionParticleGenerator( void );
+
+		void setTrail( const Trail &trail ) { _trail = trail; }
+		const Trail &getTrail( void ) const { return _trail; }
+
+		virtual void configure( Node *node, ParticleData *particles ) override;
+        virtual void generate( Node *node, crimild::Real64 dt, ParticleData *particles, ParticleId startId, ParticleId endId ) override;
+
+	private:
+		Trail _trail;
+		
+		ParticleAttribArray *_positions = nullptr;
+	};
+
+}
+
 namespace hunger {
 
 	class Player :
@@ -63,7 +89,7 @@ namespace hunger {
 		};
 
 		Direction _direction;
-		
+
 		struct TailNode {
 			crimild::Vector2i pos;
 			crimild::Node *node;
@@ -71,6 +97,13 @@ namespace hunger {
 
 		crimild::Node *_head = nullptr;
 		crimild::containers::Queue< TailNode > _tail;
+
+	private:
+		void renderTail( void );
+
+	private:
+		crimild::Geometry *_renderer = nullptr;
+		crimild::NodePositionParticleGenerator *_posGenerator = nullptr;
 	};
 
 }
