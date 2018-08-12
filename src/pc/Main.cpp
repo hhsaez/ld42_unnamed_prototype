@@ -28,11 +28,27 @@
 #include <Crimild.hpp>
 #include <Crimild_SDL.hpp>
 
+#include "Messaging/Messages.hpp"
 #include "Components/Grid.hpp"
 #include "Components/Player.hpp"
 #include "Components/Consumable.hpp"
 
+namespace crimild {
+
+	class MessageHandlerComponent :
+		public NodeComponent,
+		public crimild::Messenger {
+		CRIMILD_IMPLEMENT_RTTI( crimild::MessageHandlerComponent )
+
+	public:
+		MessageHandlerComponent( void ) { }
+		virtual ~MessageHandlerComponent( void ) { }
+	};
+
+}
+
 using namespace hunger;
+using namespace hunger::messaging;
 
 using namespace crimild;
 using namespace crimild::sdl;
@@ -51,22 +67,22 @@ SharedPointer< Group > createGrid( void )
 	
 	auto grid = crimild::alloc< Group >();
 
-	auto m = crimild::alloc< Material >();
-	m->setSpecular( RGBAColorf::ZERO );
-	m->setShininess( 0.0f );
-
-	// debug grid
 	auto g = crimild::alloc< Geometry >();
 	g->attachPrimitive( crimild::alloc< ConePrimitive >( Primitive::Type::LINES, HEIGHT, 0.5f * WIDTH ) );
-	g->getComponent< MaterialComponent >()->attachMaterial( m );
+	auto gridMaterial = crimild::alloc< Material >();
+	gridMaterial->setDiffuse( RGBAColorf( 0.0f, 0.0f, 0.0f, 1.0f ) );
+	gridMaterial->setProgram( Renderer::getInstance()->getShaderProgram( Renderer::SHADER_PROGRAM_UNLIT_DIFFUSE ) );
+	g->getComponent< MaterialComponent >()->attachMaterial( gridMaterial );
 	grid->attachNode( g );
 
-	// temp plane for background
 	auto plane = crimild::alloc< Geometry >();
 	plane->attachPrimitive( crimild::alloc< QuadPrimitive >( 10000.0f, 10000.0f ) );
 	plane->local().rotate().fromAxisAngle( Vector3f::UNIT_X, Numericf::HALF_PI );
 	plane->local().setTranslate( 0.0f, 0.25f * HEIGHT, 0.0f );
-	plane->getComponent< MaterialComponent >()->attachMaterial( m );
+	auto planeMaterial = crimild::alloc< Material >();
+	planeMaterial->setDiffuse( RGBAColorf( 1.0f, 1.0f, 1.0f, 1.0f ) );
+	planeMaterial->setProgram( Renderer::getInstance()->getShaderProgram( Renderer::SHADER_PROGRAM_UNLIT_DIFFUSE ) );
+	plane->getComponent< MaterialComponent >()->attachMaterial( planeMaterial );
 	grid->attachNode( plane );
 
 	grid->attachComponent< Grid >( WIDTH, HEIGHT );
@@ -83,7 +99,98 @@ SharedPointer< Camera > createCamera( void )
 	return camera;
 }
 
-SharedPointer< Group > loadGame( void )
+SharedPointer< Node > createInGameUI( void )
+{
+	auto fontFileName = FileSystem::getInstance().pathForResource( "assets/fonts/Verdana.txt" );
+	auto font = crimild::alloc< Font >( fontFileName );
+
+	auto btnMenu = crimild::alloc< Text >();
+	btnMenu->setFont( font );
+	btnMenu->setSize( 0.025f );
+	btnMenu->setTextColor( RGBAColorf( 0.0f, 0.0f, 0.0f, 1.0f ) );
+	btnMenu->setText( "MENU" );
+	btnMenu->setHorizontalAlignment( Text::HorizontalAlignment::LEFT );
+	btnMenu->local().setTranslate( -0.75f, 0.525f, 0.0f );
+	btnMenu->attachComponent< UIResponder >( []( Node * ) -> crimild::Bool {
+		MessageQueue::getInstance()->broadcastMessage( QuitGame {} );
+		return true;
+	});
+
+	auto inGameUI = crimild::alloc< Group >();
+	inGameUI->attachNode( btnMenu );
+	auto weakInGameUI = crimild::get_ptr( inGameUI );
+	inGameUI->attachComponent< MessageHandlerComponent >()->registerMessageHandler< GameOver >( [ weakInGameUI ]( GameOver const & ) {
+		weakInGameUI->setEnabled( false );		
+	});
+	return inGameUI;
+}
+
+SharedPointer< Node > createGameOverUI( void )
+{
+	auto fontFileName = FileSystem::getInstance().pathForResource( "assets/fonts/Verdana.txt" );
+	auto font = crimild::alloc< Font >( fontFileName );
+
+	auto ui = crimild::alloc< Group >();
+
+	auto lblTitle = crimild::alloc< Text >();
+	lblTitle->setFont( font );
+	lblTitle->setSize( 0.25f );
+	lblTitle->setTextColor( RGBAColorf( 1.0f, 0.0f, 0.0f, 1.0f ) );
+	lblTitle->setText( "Game Over" );
+	lblTitle->setHorizontalAlignment( Text::HorizontalAlignment::CENTER );
+	lblTitle->local().setTranslate( 0.0f, 0.1f, 0.0f );
+	ui->attachNode( lblTitle );
+
+	auto btnPlay = crimild::alloc< Text >();
+	btnPlay->setFont( font );
+	btnPlay->setSize( 0.05f );
+	btnPlay->setTextColor( RGBAColorf( 1.0f, 0.0f, 0.0f, 1.0f ) );
+	btnPlay->setText( "RESTART" );
+	btnPlay->setHorizontalAlignment( Text::HorizontalAlignment::CENTER );
+	btnPlay->local().setTranslate( 0.0f, -0.1f, 0.0f );
+	btnPlay->attachComponent< UIResponder >( []( Node * ) -> crimild::Bool {
+		MessageQueue::getInstance()->broadcastMessage( StartGame { } );
+		return true;
+	});
+	ui->attachNode( btnPlay );
+
+	auto btnQuit = crimild::alloc< Text >();
+	btnQuit->setFont( font );
+	btnQuit->setSize( 0.05f );
+	btnQuit->setTextColor( RGBAColorf( 1.0f, 0.0f, 0.0f, 1.0f ) );
+	btnQuit->setText( "MAIN MENU" );
+	btnQuit->setHorizontalAlignment( Text::HorizontalAlignment::CENTER );
+	btnQuit->local().setTranslate( 0.0f, -0.2f, 0.0f );
+	btnQuit->attachComponent< UIResponder >( []( Node * ) -> crimild::Bool {
+		MessageQueue::getInstance()->broadcastMessage( QuitGame {} );
+		return true;
+	});
+	ui->attachNode( btnQuit );
+
+	auto weakUI = crimild::get_ptr( ui );
+	ui->attachComponent< MessageHandlerComponent >()->registerMessageHandler< GameOver >( [ weakUI ]( GameOver const & ) {
+		weakUI->setEnabled( true );
+	});
+
+	// required, since we're disable the node from the start
+	ui->perform( UpdateRenderState() );
+	ui->perform( UpdateWorldState() );
+	ui->perform( StartComponents() );
+	ui->setEnabled( false );
+
+	return ui;
+}
+
+SharedPointer< Group > createGameUI( void )
+{
+	auto ui = crimild::alloc< Group >();
+	ui->attachNode( createInGameUI() );
+	ui->attachNode( createGameOverUI() );
+	ui->local().setTranslate( 0.0f, 0.0f, -1.0f );
+	return ui;
+}
+
+SharedPointer< Group > createGameScene( void )
 {
     auto scene = crimild::alloc< Group >();
 
@@ -91,6 +198,7 @@ SharedPointer< Group > loadGame( void )
 	scene->attachNode( grid );
 
     auto camera = createCamera();
+	camera->attachNode( createGameUI() );
     scene->attachNode( camera );
 
 	auto light = crimild::alloc< Light >( Light::Type::POINT );
@@ -99,30 +207,96 @@ SharedPointer< Group > loadGame( void )
     return scene;
 }
 
+SharedPointer< Group > createMainMenuScene( void )
+{
+	auto scene = crimild::alloc< Group >();
+
+	{
+		auto background = crimild::alloc< Geometry >();
+		background->attachPrimitive( crimild::alloc< QuadPrimitive >( 100, 100 ) );
+		auto m = crimild::alloc< Material >();
+		m->setDiffuse( RGBAColorf::ONE );
+		m->setProgram( Renderer::getInstance()->getShaderProgram( Renderer::SHADER_PROGRAM_UNLIT_DIFFUSE ) );
+		background->getComponent< MaterialComponent >()->attachMaterial( m );
+		background->local().setTranslate( 0.0f, 0.0f, -5.0f );
+		scene->attachNode( background );
+	}
+
+	auto camera = crimild::alloc< Camera >();
+	camera->local().setTranslate( 0.0f, 0.0f, 20.0f );
+	scene->attachNode( camera );
+
+	auto ui = crimild::alloc< Group >();
+
+	auto fontFileName = FileSystem::getInstance().pathForResource( "assets/fonts/Verdana.txt" );
+	auto font = crimild::alloc< Font >( fontFileName );
+
+	auto lblTitle = crimild::alloc< Text >();
+	lblTitle->setFont( font );
+	lblTitle->setSize( 3.0f );
+	lblTitle->setTextColor( RGBAColorf( 0.0f, 0.0f, 0.0f, 1.0f ) );
+	lblTitle->setText( "THE HUNGER" );
+	lblTitle->setHorizontalAlignment( Text::HorizontalAlignment::CENTER );
+	lblTitle->local().setTranslate( 0.0f, 2.0f, 0.0f );
+	ui->attachNode( lblTitle );
+
+	auto btnPlay = crimild::alloc< Text >();
+	btnPlay->setFont( font );
+	btnPlay->setSize( 1.0f );
+	btnPlay->setTextColor( RGBAColorf( 0.0f, 0.0f, 0.0f, 1.0f ) );
+	btnPlay->setText( "Play" );
+	btnPlay->setHorizontalAlignment( Text::HorizontalAlignment::CENTER );
+	btnPlay->local().setTranslate( 0.0f, -1.0f, 0.0f );
+	btnPlay->attachComponent< UIResponder >( []( Node * ) -> crimild::Bool {
+		MessageQueue::getInstance()->broadcastMessage( StartGame { } );
+		return true;
+	});
+	ui->attachNode( btnPlay );
+
+	auto btnQuit = crimild::alloc< Text >();
+	btnQuit->setFont( font );
+	btnQuit->setSize( 1.0f );
+	btnQuit->setTextColor( RGBAColorf( 0.0f, 0.0f, 0.0f, 1.0f ) );
+	btnQuit->setText( "Quit" );
+	btnQuit->setHorizontalAlignment( Text::HorizontalAlignment::CENTER );
+	btnQuit->local().setTranslate( 0.0f, -3.0f, 0.0f );
+	btnQuit->attachComponent< UIResponder >( []( Node * ) -> crimild::Bool {
+		crimild::concurrency::sync_frame( [] {
+			Simulation::getInstance()->stop();
+		});
+		return true;
+	});
+	ui->attachNode( btnQuit );
+	
+	scene->attachNode( ui );
+
+	return scene;
+}
+
 int main( int argc, char **argv )
 {
 	crimild::init();
 
 	SIM_LIFETIME auto sim = crimild::alloc< SDLSimulation >( "LD42", crimild::alloc< Settings >( argc, argv ) );
 
-	sim->getRenderer()->getScreenBuffer()->setClearColor( RGBAColorf( 0.5f, 0.5f, 0.5f, 1.0f ) );
-
-	sim->setScene( loadGame() );
-
-	sim->registerMessageHandler< KeyReleased >( []( KeyReleased const &m ) {
-		switch ( m.key ) {
-			case CRIMILD_INPUT_KEY_R: {
-				crimild::concurrency::sync_frame( [] {
-					auto sim = Simulation::getInstance();
-					sim->setScene( nullptr );
-					auto scene = loadGame();
-					sim->setScene( scene );
-				});
-				break;
-			}
-		}
+	sim->registerMessageHandler< StartGame >( []( StartGame const & ) {
+		crimild::concurrency::sync_frame( [] {
+			auto sim = Simulation::getInstance();
+			sim->setScene( nullptr );
+			sim->setScene( createGameScene() );
+		});
 	});
-	
+
+	sim->registerMessageHandler< QuitGame >( []( QuitGame const & ) {
+		crimild::concurrency::sync_frame( [] {
+			auto sim = Simulation::getInstance();
+			sim->setScene( nullptr );
+			sim->setScene( createMainMenuScene() );
+		});
+	});
+
+	sim->setScene( createMainMenuScene() );
+
 	return sim->run();
 }
 

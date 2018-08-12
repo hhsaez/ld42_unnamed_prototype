@@ -30,6 +30,8 @@
 #include "GridObject.hpp"
 #include "Consumable.hpp"
 
+#include "Messaging/Messages.hpp"
+
 using namespace hunger;
 using namespace hunger::messaging;
 
@@ -244,6 +246,7 @@ void Player::update( const Clock &c )
 	_t += c.getDeltaTime();
 	while ( _t >= FIXED_TIME ) {
 		if ( !step() ) {
+			broadcastMessage( GameOver { } );
 			setEnabled( false );
 			return;
 		}
