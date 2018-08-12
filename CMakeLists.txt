@@ -3,13 +3,6 @@ CMAKE_MINIMUM_REQUIRED( VERSION 3.1.0 FATAL_ERROR )
 PROJECT( LD42 )
 
 SET( CRIMILD_ENABLE_SDL ON CACHE BOOL "Enable SDL module for Crimild" )
-SET( CRIMILD_ENABLE_IMPORT ON CACHE BOOL "Enable import module for Crimild" )
-SET( CRIMILD_SCRIPTING_LOG_VERBOSE ON CACHE BOOL "Enable verbose logging for Crimild" )
-
-IF ( APPLE )
-	SET( CRIMILD_BUILD_TOOLS ON CACHE BOOL "Enable tools for Crimild" )
-	SET( CRIMILD_ENABLE_TESTS ON CACHE BOOL "Enable testing module for Crimild" )
-ENDIF ()
 
 ADD_SUBDIRECTORY( crimild )
 
